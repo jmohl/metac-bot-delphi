@@ -72,13 +72,7 @@ class Q1TemplateBot(ForecastBot):
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
             research = ""
-            if os.getenv("ASKNEWS_CLIENT_ID") and os.getenv("ASKNEWS_SECRET"):
-                research = AskNewsSearcher().get_formatted_news(question.question_text)
-            elif os.getenv("EXA_API_KEY"):
-                research = await self._call_exa_smart_searcher(question.question_text)
-            elif os.getenv("PERPLEXITY_API_KEY"):
-                research = await self._call_perplexity(question.question_text)
-            elif os.getenv("OPENROUTER_API_KEY"):
+            if os.getenv("OPENROUTER_API_KEY"):
                 research = await self._call_perplexity(question.question_text, use_open_router=True)
             else:
                 research = ""
@@ -108,25 +102,6 @@ class Q1TemplateBot(ForecastBot):
         response = await model.invoke(prompt)
         return response
 
-    async def _call_exa_smart_searcher(self, question: str) -> str:
-        """
-        SmartSearcher is a custom class that is a wrapper around a search on Exa.ai
-        """
-        searcher = SmartSearcher(
-            model=self._get_final_decision_llm(),
-            temperature=0,
-            num_searches_to_run=2,
-            num_sites_per_search=10,
-        )
-        prompt = (
-            "You are an assistant to a superforecaster. The superforecaster will give"
-            "you a question they intend to forecast on. To be a great assistant, you generate"
-            "a concise but detailed rundown of the most relevant news, including if the question"
-            "would resolve Yes or No based on current information. You do not produce forecasts yourself."
-            f"\n\nThe question is: {question}"
-        )  # You can ask the searcher to filter by date, exclude/include a domain, and run specific searches for finding sources vs finding highlights within a source
-        response = await searcher.invoke(prompt)
-        return response
 
     def _get_final_decision_llm(self) -> GeneralLlm:
         model = None
