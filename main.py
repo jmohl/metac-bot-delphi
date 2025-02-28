@@ -65,7 +65,7 @@ class Q1TemplateBot(ForecastBot):
     """
 
     _max_concurrent_questions = (
-        10  # Set this to whatever works for your search-provider/ai-model rate limits
+        5  # Set this to whatever works for your search-provider/ai-model rate limits
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
@@ -110,9 +110,9 @@ class Q1TemplateBot(ForecastBot):
         elif os.getenv("ANTHROPIC_API_KEY"):
             model = GeneralLlm(model="claude-3-5-sonnet-20241022", temperature=0.3)
         elif os.getenv("OPENROUTER_API_KEY"):
-            model = GeneralLlm(model="openrouter/openai/gpt-4o", temperature=0.3)
+            model = GeneralLlm(model="openrouter/openai/gpt-4o-mini", temperature=0.3)
         elif os.getenv("METACULUS_TOKEN"):
-            model = GeneralLlm(model="metaculus/gpt-4o", temperature=0.3)
+            model = GeneralLlm(model="metaculus/gpt-4o-mini", temperature=0.3)
         else:
             raise ValueError("No API key for final_decision_llm found")
         return model
@@ -316,7 +316,13 @@ def summarize_reports(forecast_reports: list[ForecastReport | BaseException]) ->
             ---------------------------------------------------------
         """)
         logger.info(question_summary)
-
+        # Save report to file
+        question_id = report.question.page_url.split('/')[-2]  # Extract question ID from URL
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"reports/question_{question_id}_{timestamp}.txt"
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(question_summary)
     if exceptions:
         raise RuntimeError(
             f"{len(exceptions)} errors occurred while forecasting: {exceptions}"
@@ -351,7 +357,7 @@ if __name__ == "__main__":
         predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
-        folder_to_save_reports_to=None,
+        folder_to_save_reports_to="/reports",
         skip_previously_forecasted_questions=True,
     )
 
@@ -376,8 +382,8 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
         ]
         template_bot.skip_previously_forecasted_questions = False
         questions = [
