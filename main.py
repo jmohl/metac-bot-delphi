@@ -65,7 +65,7 @@ class Q1TemplateBot(ForecastBot):
     """
 
     _max_concurrent_questions = (
-        5  # Set this to whatever works for your search-provider/ai-model rate limits
+        2  # Set this to whatever works for your search-provider/ai-model rate limits
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
@@ -307,12 +307,23 @@ def summarize_reports(forecast_reports: list[ForecastReport | BaseException]) ->
         report.errors for report in valid_reports if report.errors
     ]
 
+    # Create reports directory if it doesn't exist
+    os.makedirs("reports", exist_ok=True)
+
     for report in valid_reports:
         question_summary = clean_indents(f"""
             URL: {report.question.page_url}
             Errors: {report.errors}
             Summary:
             {report.summary}
+            Prediction:
+            {report.prediction}
+            Community Prediction:
+            {report.community_prediction}
+            Reasoning:
+            {report.forecast_rationales}
+            Research:
+            {report.research}
             ---------------------------------------------------------
         """)
         logger.info(question_summary)
@@ -356,9 +367,9 @@ if __name__ == "__main__":
         research_reports_per_question=1,
         predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
-        publish_reports_to_metaculus=True,
+        publish_reports_to_metaculus=False,
         folder_to_save_reports_to="/reports",
-        skip_previously_forecasted_questions=True,
+        skip_previously_forecasted_questions=False,
     )
 
     if run_mode == "tournament":
@@ -382,7 +393,7 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
         ]
         template_bot.skip_previously_forecasted_questions = False
@@ -397,4 +408,5 @@ if __name__ == "__main__":
         )
     forecast_reports = typeguard.check_type(forecast_reports, list[ForecastReport | BaseException])
     summarize_reports(forecast_reports)
+
 
