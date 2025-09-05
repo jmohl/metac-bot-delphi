@@ -80,6 +80,7 @@ class DelphiFall2025(ForecastBot):
                     sources=["asknews"],
                     search_depth=2,#this is the max allowed by asknews for metaculus users
                     max_depth=2,
+                    model="deepseek-basic",
                 )
             # elif researcher == "asknews/deep-research/high-depth":
             #     research = await AskNewsSearcher().get_formatted_deep_research(
