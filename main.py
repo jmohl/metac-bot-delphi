@@ -396,7 +396,7 @@ if __name__ == "__main__":
                 allowed_tries=2,
             ),
             "summarizer": "openai/o3-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
-            "summarizer": "openai/o3-mini"#"researcher": "asknews/deep-research/medium-depth",
+            "summarizer": "openai/o3-mini",#"researcher": "asknews/deep-research/medium-depth",
             #"factchecker": "openai/o3-mini",
             "parser": "openai/o3-mini",
         },
