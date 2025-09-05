@@ -1,7 +1,9 @@
 import argparse
 import asyncio
 import logging
+import os
 from datetime import datetime
+from tkinter.constants import TRUE
 from typing import Literal
 
 from forecasting_tools import (
@@ -26,79 +28,11 @@ from forecasting_tools import (
 logger = logging.getLogger(__name__)
 
 
-class FallTemplateBot2025(ForecastBot):
+class DelphiFall2025(ForecastBot):
     """
-    This is a copy of the template bot for Fall 2025 Metaculus AI Tournament.
-    This bot is what is used by Metaculus in our benchmark, but is also provided as a template for new bot makers.
-    This template is given as-is, and though we have covered most test cases
-    in forecasting-tools it may be worth double checking key components locally.
-
-    Main changes since Q2:
-    - An LLM now parses the final forecast output (rather than programmatic parsing)
-    - Added resolution criteria and fine print explicitly to the research prompt
-    - Previously in the prompt, nothing about upper/lower bound was shown when the bounds were open. Now a suggestion is made when this is the case.
-    - Support for nominal bounds was added (i.e. when there are discrete questions and normal upper/lower bounds are not as intuitive)
-
-    The main entry point of this bot is `forecast_on_tournament` in the parent class.
-    See the script at the bottom of the file for more details on how to run the bot.
-    Ignoring the finer details, the general flow is:
-    - Load questions from Metaculus
-    - For each question
-        - Execute run_research a number of times equal to research_reports_per_question
-        - Execute respective run_forecast function `predictions_per_research_report * research_reports_per_question` times
-        - Aggregate the predictions
-        - Submit prediction (if publish_reports_to_metaculus is True)
-    - Return a list of ForecastReport objects
-
-    Only the research and forecast functions need to be implemented in ForecastBot subclasses,
-    though you may want to override other ones.
-    In this example, you can change the prompts to be whatever you want since,
-    structure_output uses an LLMto intelligently reformat the output into the needed structure.
-
-    By default (i.e. 'tournament' mode), when you run this script, it will forecast on any open questions for the
-    MiniBench and Seasonal AIB tournaments. If you want to forecast on only one or the other, you can remove one
-    of them from the 'tournament' mode code at the bottom of the file.
-
-    You can experiment with what models work best with your bot by using the `llms` parameter when initializing the bot.
-    You can initialize the bot with any number of models. For example,
-    ```python
-    my_bot = MyBot(
-        ...
-        llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
-            "default": GeneralLlm(
-                model="openrouter/openai/gpt-4o", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
-                temperature=0.3,
-                timeout=40,
-                allowed_tries=2,
-            ),
-            "summarizer": "openai/gpt-4o-mini",
-            "researcher": "asknews/deep-research/low",
-            "parser": "openai/gpt-4o-mini",
-        },
-    )
-    ```
-
-    Then you can access the model in custom functions like this:
-    ```python
-    research_strategy = self.get_llm("researcher", "model_name"
-    if research_strategy == "asknews/deep-research/low":
-        ...
-    # OR
-    summarizer = await self.get_llm("summarizer", "model_name").invoke(prompt)
-    # OR
-    reasoning = await self.get_llm("default", "llm").invoke(prompt)
-    ```
-
-    If you end up having trouble with rate limits and want to try a more sophisticated rate limiter try:
-    ```python
-    from forecasting_tools import RefreshingBucketRateLimiter
-    rate_limiter = RefreshingBucketRateLimiter(
-        capacity=2,
-        refresh_rate=1,
-    ) # Allows 1 request per second on average with a burst of 2 requests initially. Set this as a class variable
-    await self.rate_limiter.wait_till_able_to_acquire_resources(1) # 1 because it's consuming 1 request (use more if you are adding a token limit)
-    ```
-    Additionally OpenRouter has large rate limits immediately on account creation
+    This is the Delphi Fall 2025 bot.
+    This bot is a fork of the Fall 2025 metac template bot with the following changes:
+    - A focus is placed on validating research for accuracy to minimize the impact of hallucinations.
     """
 
     _max_concurrent_questions = (
@@ -113,9 +47,13 @@ class FallTemplateBot2025(ForecastBot):
 
             prompt = clean_indents(
                 f"""
-                You are an assistant to a superforecaster.
-                The superforecaster will give you a question they intend to forecast on.
-                To be a great assistant, you generate a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
+                You are an experienced Research Lead on a small superforecasting team.
+                You will be given a question to research, for which your team will need to produce a forecast.
+                Your role is to provide a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
+                You focus on providing the most relevant news, not the most recent news.
+                For your research report, first provide a detailed summary of your research as it relates to the question (500-1000 words). 
+                Then list the 5-10 most important facts upon which this summary is based.
+
                 You do not produce forecasts yourself.
 
                 Question:
@@ -163,6 +101,11 @@ class FallTemplateBot2025(ForecastBot):
             else:
                 research = await self.get_llm("researcher", "llm").invoke(prompt)
             logger.info(f"Found Research for URL {question.page_url}:\n{research}")
+            
+            # Save research to txt file if research_to_txt is enabled
+            if hasattr(self, 'research_to_txt') and self.research_to_txt:
+                self._save_research_to_txt(question, research)
+            
             return research
 
     async def _run_forecast_on_binary(
@@ -369,6 +312,32 @@ class FallTemplateBot2025(ForecastBot):
             )
         return upper_bound_message, lower_bound_message
 
+    def _save_research_to_txt(self, question: MetaculusQuestion, research: str) -> None:
+        """Save research string to a txt file in the reports folder."""
+        try:
+            # Create reports directory if it doesn't exist
+            reports_dir = "reports"
+            os.makedirs(reports_dir, exist_ok=True)
+            
+            # Create a unique filename with timestamp and question info
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            question_id = question.page_url.split("/")[-2] if "/" in question.page_url else "unknown"
+            filename = f"research_{question_id}_{timestamp}.txt"
+            filepath = os.path.join(reports_dir, filename)
+            
+            # Write research content to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"Question: {question.question_text}\n")
+                f.write(f"URL: {question.page_url}\n")
+                f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(research)
+            
+            logger.info(f"Research saved to: {filepath}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save research to txt file: {e}")
+
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -382,14 +351,19 @@ if __name__ == "__main__":
     litellm_logger.propagate = False
 
     parser = argparse.ArgumentParser(
-        description="Run the Q1TemplateBot forecasting system"
+        description="Run the Delphi Fall 2025 forecasting system"
     )
     parser.add_argument(
         "--mode",
         type=str,
         choices=["tournament", "metaculus_cup", "test_questions"],
-        default="tournament",
-        help="Specify the run mode (default: tournament)",
+        default="test_questions",
+        help="Specify the run mode (default: test_questions)",
+    )
+    parser.add_argument(
+        "--research_to_txt",
+        action="store_true",
+        help="Save research strings to txt files in the reports folder",
     )
     args = parser.parse_args()
     run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
@@ -399,25 +373,29 @@ if __name__ == "__main__":
         "test_questions",
     ], "Invalid run mode"
 
-    template_bot = FallTemplateBot2025(
+    template_bot = DelphiFall2025(
         research_reports_per_question=1,
-        predictions_per_research_report=5,
+        predictions_per_research_report=1,
         use_research_summary_to_forecast=False,
-        publish_reports_to_metaculus=True,
-        folder_to_save_reports_to=None,
+        publish_reports_to_metaculus=False,
+        folder_to_save_reports_to="reports",
         skip_previously_forecasted_questions=True,
-        # llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
-        #     "default": GeneralLlm(
-        #         model="openrouter/openai/gpt-4o", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
-        #         temperature=0.3,
-        #         timeout=40,
-        #         allowed_tries=2,
-        #     ),
-        #     "summarizer": "openai/gpt-4o-mini",
-        #     "researcher": "asknews/deep-research/low",
-        #     "parser": "openai/gpt-4o-mini",
-        # },
+        llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
+            "default": GeneralLlm(
+                model="openrouter/openai/o3-mini", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                temperature=0.3,
+                timeout=40,
+                allowed_tries=2,
+            ),
+            "summarizer": "openai/o3-mini",
+            "researcher": "openai/o3-mini",#"asknews/deep-research/low",
+            "factchecker": "openai/o3-mini",
+            "parser": "openai/o3-mini",
+        },
     )
+    
+    # Set the research_to_txt flag
+    template_bot.research_to_txt = args.research_to_txt
 
     if run_mode == "tournament":
         seasonal_tournament_reports = asyncio.run(
@@ -445,8 +423,8 @@ if __name__ == "__main__":
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
             "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-            "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
         template_bot.skip_previously_forecasted_questions = False
         questions = [
