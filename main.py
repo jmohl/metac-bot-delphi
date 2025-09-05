@@ -70,7 +70,7 @@ class DelphiFall2025(ForecastBot):
             if isinstance(researcher, GeneralLlm):
                 research = await researcher.invoke(prompt)
             elif researcher == "asknews/news-summaries":
-                #note there is an issue for this because it makes 2 API calls
+                #note there is an issue for this because it makes 2 API calls within the formatted_news_async function and gets a rate limit error
                 research = await AskNewsSearcher().get_formatted_news_async(
                     question.question_text
                 )
@@ -82,6 +82,7 @@ class DelphiFall2025(ForecastBot):
                     max_depth=2,
                     model="deepseek-basic",
                 )
+                research=self._sanitize_text(research)
             # elif researcher == "asknews/deep-research/high-depth":
             #     research = await AskNewsSearcher().get_formatted_deep_research(
             #         question.question_text,
@@ -340,7 +341,11 @@ class DelphiFall2025(ForecastBot):
             
         except Exception as e:
             logger.error(f"Failed to save research to txt file: {e}")
-
+    def _sanitize_text(self, text: str) -> str:
+        """Sanitize text by removing newlines and carriage returns to prevent header injection attacks."""
+        if not text:
+            return ""
+        return text.replace('\n', ' ').replace('\r', ' ').strip()
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -390,7 +395,7 @@ if __name__ == "__main__":
                 timeout=40,
                 allowed_tries=2,
             ),
-            "summarizer": "openai/o3-mini",
+            "summarizer": "openai/o3-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
             "researcher": "asknews/deep-research/medium-depth",
             #"factchecker": "openai/o3-mini",
             "parser": "openai/o3-mini",
