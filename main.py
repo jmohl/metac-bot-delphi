@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from tkinter.constants import TRUE
 from typing import Literal
+from asknews_sdk import AsyncAskNewsSDK
 
 from forecasting_tools import (
     AskNewsSearcher,
@@ -69,33 +70,34 @@ class DelphiFall2025(ForecastBot):
             if isinstance(researcher, GeneralLlm):
                 research = await researcher.invoke(prompt)
             elif researcher == "asknews/news-summaries":
+                #note there is an issue for this because it makes 2 API calls
                 research = await AskNewsSearcher().get_formatted_news_async(
                     question.question_text
                 )
             elif researcher == "asknews/deep-research/medium-depth":
                 research = await AskNewsSearcher().get_formatted_deep_research(
                     question.question_text,
-                    sources=["asknews", "google"],
-                    search_depth=2,
-                    max_depth=4,
+                    sources=["asknews"],
+                    search_depth=2,#this is the max allowed by asknews for metaculus users
+                    max_depth=2,
                 )
-            elif researcher == "asknews/deep-research/high-depth":
-                research = await AskNewsSearcher().get_formatted_deep_research(
-                    question.question_text,
-                    sources=["asknews", "google"],
-                    search_depth=4,
-                    max_depth=6,
-                )
-            elif researcher.startswith("smart-searcher"):
-                model_name = researcher.removeprefix("smart-searcher/")
-                searcher = SmartSearcher(
-                    model=model_name,
-                    temperature=0,
-                    num_searches_to_run=2,
-                    num_sites_per_search=10,
-                    use_advanced_filters=False,
-                )
-                research = await searcher.invoke(prompt)
+            # elif researcher == "asknews/deep-research/high-depth":
+            #     research = await AskNewsSearcher().get_formatted_deep_research(
+            #         question.question_text,
+            #         sources=["asknews"],
+            #         search_depth=2,
+            #         max_depth=2,
+            #     )
+            # elif researcher.startswith("smart-searcher"):
+            #     model_name = researcher.removeprefix("smart-searcher/")
+            #     searcher = SmartSearcher(
+            #         model=model_name,
+            #         temperature=0,
+            #         num_searches_to_run=2,
+            #         num_sites_per_search=10,
+            #         use_advanced_filters=False,
+            #     )
+            #    research = await searcher.invoke(prompt)
             elif not researcher or researcher == "None":
                 research = ""
             else:
@@ -388,8 +390,8 @@ if __name__ == "__main__":
                 allowed_tries=2,
             ),
             "summarizer": "openai/o3-mini",
-            "researcher": "openai/o3-mini",#"asknews/deep-research/low",
-            "factchecker": "openai/o3-mini",
+            "researcher": "asknews/deep-research/medium-depth",
+            #"factchecker": "openai/o3-mini",
             "parser": "openai/o3-mini",
         },
     )
@@ -422,7 +424,7 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
             #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
