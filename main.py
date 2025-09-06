@@ -7,8 +7,8 @@ from tkinter.constants import TRUE
 from typing import Literal
 from asknews_sdk import AsyncAskNewsSDK
 
+from asknews_searcher_dp import AskNewsSearcher
 from forecasting_tools import (
-    AskNewsSearcher,
     BinaryQuestion,
     ForecastBot,
     GeneralLlm,
@@ -34,6 +34,7 @@ class DelphiFall2025(ForecastBot):
     This is the Delphi Fall 2025 bot.
     This bot is a fork of the Fall 2025 metac template bot with the following changes:
     - A focus is placed on validating research for accuracy to minimize the impact of hallucinations.
+    - this should include catching common errors, such as conflating "social democrat party" and "socialist party" or similar.
     """
 
     _max_concurrent_questions = (
@@ -41,19 +42,74 @@ class DelphiFall2025(ForecastBot):
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
+    async def run_newsboy(self, question: MetaculusQuestion) -> str:
+        """Get a quick news summary before running detailed research."""
+        # Note: No semaphore here since this is called from within run_research which already has the semaphore
+        logger.info(f"Starting newsboy for URL {question.page_url}")
+        newsboy = self.get_llm("newsboy")
+        
+        try:
+            if isinstance(newsboy, GeneralLlm):
+                # Use a simple prompt for quick news gathering
+                prompt = f"""
+                Find the most recent and relevant news about: {question.question_text}
+                """
+                logger.info("Newsboy using GeneralLlm")
+                news_summary = await newsboy.invoke(prompt)
+            elif newsboy == "asknews/news-summaries":
+                # Use AskNews for quick news summaries
+                logger.info("Newsboy using AskNews news-summaries")
+                news_summary = await AskNewsSearcher().get_formatted_news_async(
+                    question.question_text
+                )
+            elif newsboy == "asknews/deep-research/medium-depth":
+                logger.info("Newsboy using AskNews deep-research (this might be slow)")
+                news_summary = await AskNewsSearcher().get_formatted_deep_research(
+                    question.question_text,
+                    sources=["asknews"],
+                    search_depth=2,#this is the max allowed by asknews for metaculus users
+                    max_depth=2,
+                    model="deepseek-basic",#better models are not allowed using the free metaculus tier
+                )
+            elif not newsboy or newsboy == "None":
+                logger.info("Newsboy disabled")
+                news_summary = ""
+            else:
+                # Fallback to LLM
+                logger.info("Newsboy using fallback LLM")
+                news_summary = await self.get_llm("newsboy", "llm").invoke(
+                    f"Find the most recent and relevant news about: {question.question_text}"
+                )
+            
+            logger.info(f"Newsboy completed for URL {question.page_url}")
+            logger.info(f"Newsboy summary for URL {question.page_url}:\n{news_summary}")
+            return news_summary
+        except Exception as e:
+            logger.error(f"Newsboy failed for URL {question.page_url}: {e}")
+            return f"Newsboy error: {str(e)}"
+
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
+            logger.info(f"Starting research for URL {question.page_url}")
             research = ""
             researcher = self.get_llm("researcher")
+            
+            # First, get news summary from newsboy
+            logger.info(f"Calling newsboy for URL {question.page_url}")
+            try:
+                news_summary = await asyncio.wait_for(self.run_newsboy(question), timeout=60.0)  # 60 second timeout
+                logger.info(f"Newsboy completed, starting researcher for URL {question.page_url}")
+            except asyncio.TimeoutError:
+                logger.error(f"Newsboy timed out for URL {question.page_url}")
+                news_summary = "Newsboy timed out - no initial news summary available."
 
             prompt = clean_indents(
                 f"""
                 You are an experienced Research Lead on a small superforecasting team.
                 You will be given a question to research, for which your team will need to produce a forecast.
                 Your role is to provide a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
-                You focus on providing the most relevant news, not the most recent news.
-                For your research report, first provide a detailed summary of your research as it relates to the question (500-1000 words). 
-                Then list the 5-10 most important facts upon which this summary is based.
+                You focus on providing the most relevant news, not only the most recent news. 
+                However, if there is news that suggest resolution of the question is imminent then this should be prioritized above all else
 
                 You do not produce forecasts yourself.
 
@@ -64,6 +120,17 @@ class DelphiFall2025(ForecastBot):
                 {question.resolution_criteria}
 
                 {question.fine_print}
+
+                The options are: {getattr(question, 'options', 'yes/no or a range of values')}
+                If there are multiple options listed, you must provide a brief description of each of the options to provide context.
+
+                You have already tasked one of your junior analysts to produce a news summary related to this question.
+                They reported the following:
+                {news_summary if news_summary else "No initial news summary available."}
+
+                For your research report, first provide a detailed summary of your research as it relates to the question (500-1000 words). 
+                Then list the 5-10 most important facts upon which this summary is based.
+
                 """
             )
 
@@ -80,9 +147,9 @@ class DelphiFall2025(ForecastBot):
                     sources=["asknews"],
                     search_depth=2,#this is the max allowed by asknews for metaculus users
                     max_depth=2,
-                    model="deepseek-basic",
+                    model="deepseek-basic",#better models are not allowed using the free metaculus tier
                 )
-                research=self._sanitize_text(research)
+               # research=self._sanitize_text(research)
             # elif researcher == "asknews/deep-research/high-depth":
             #     research = await AskNewsSearcher().get_formatted_deep_research(
             #         question.question_text,
@@ -108,7 +175,7 @@ class DelphiFall2025(ForecastBot):
             
             # Save research to txt file if research_to_txt is enabled
             if hasattr(self, 'research_to_txt') and self.research_to_txt:
-                self._save_research_to_txt(question, research)
+                self._save_research_to_txt(question, prompt, research, news_summary)
             
             return research
 
@@ -193,6 +260,7 @@ class DelphiFall2025(ForecastBot):
 
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
 
+            Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 exactly.
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
             Option_B: Probability_B
@@ -316,7 +384,7 @@ class DelphiFall2025(ForecastBot):
             )
         return upper_bound_message, lower_bound_message
 
-    def _save_research_to_txt(self, question: MetaculusQuestion, research: str) -> None:
+    def _save_research_to_txt(self, question: MetaculusQuestion, prompt: str, research: str, news_summary: str) -> None:
         """Save research string to a txt file in the reports folder."""
         try:
             # Create reports directory if it doesn't exist
@@ -335,12 +403,20 @@ class DelphiFall2025(ForecastBot):
                 f.write(f"URL: {question.page_url}\n")
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
                 f.write("=" * 80 + "\n\n")
+                f.write("=== NEWSBOY SUMMARY ===\n")
+                f.write(news_summary if news_summary else "No news summary available.\n")
+                f.write("\n" + "=" * 80 + "\n\n")
+                f.write("=== RESEARCHER PROMPT ===\n")
+                f.write(prompt)
+                f.write("\n" + "=" * 80 + "\n\n")
+                f.write("=== RESEARCHER OUTPUT ===\n")
                 f.write(research)
             
             logger.info(f"Research saved to: {filepath}")
             
         except Exception as e:
             logger.error(f"Failed to save research to txt file: {e}")
+#this was an attempt at removing the carriage/newline issue I was gettin, but this is still only happening in github jobs for some reason.
     def _sanitize_text(self, text: str) -> str:
         """Sanitize text by removing newlines and carriage returns to prevent header injection attacks."""
         if not text:
@@ -381,38 +457,39 @@ if __name__ == "__main__":
         "test_questions",
     ], "Invalid run mode"
 
-    template_bot = DelphiFall2025(
+    delphi_bot = DelphiFall2025(
         research_reports_per_question=1,
         predictions_per_research_report=1,
         use_research_summary_to_forecast=False,
-        publish_reports_to_metaculus=False,
+        publish_reports_to_metaculus=True,
         folder_to_save_reports_to="reports",
         skip_previously_forecasted_questions=True,
         llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
             "default": GeneralLlm(
-                model="openrouter/openai/o3-mini", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                model="openai/o3-mini", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
                 temperature=0.3,
                 timeout=40,
                 allowed_tries=2,
             ),
             "summarizer": "openai/o3-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
-            "researcher": "openai/o3-mini",#"researcher": "asknews/deep-research/medium-depth",
+            "newsboy": "asknews/deep-research/medium-depth",  # Quick news summary before research
+            "researcher": "openai/o3-mini",
             #"factchecker": "openai/o3-mini",
             "parser": "openai/o3-mini",
         },
     )
     
     # Set the research_to_txt flag
-    template_bot.research_to_txt = args.research_to_txt
+    delphi_bot.research_to_txt = args.research_to_txt
 
     if run_mode == "tournament":
         seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
+            delphi_bot.forecast_on_tournament(
                 MetaculusApi.CURRENT_AI_COMPETITION_ID, return_exceptions=True
             )
         )
         minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
+            delphi_bot.forecast_on_tournament(
                 MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True
             )
         )
@@ -420,9 +497,9 @@ if __name__ == "__main__":
     elif run_mode == "metaculus_cup":
         # The Metaculus cup is a good way to test the bot's performance on regularly open questions. You can also use AXC_2025_TOURNAMENT_ID = 32564 or AI_2027_TOURNAMENT_ID = "ai-2027"
         # The Metaculus cup may not be initialized near the beginning of a season (i.e. January, May, September)
-        template_bot.skip_previously_forecasted_questions = False
+        delphi_bot.skip_previously_forecasted_questions = False
         forecast_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
+            delphi_bot.forecast_on_tournament(
                 MetaculusApi.CURRENT_METACULUS_CUP_ID, return_exceptions=True
             )
         )
@@ -434,12 +511,12 @@ if __name__ == "__main__":
             #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
             #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
-        template_bot.skip_previously_forecasted_questions = False
+        delphi_bot.skip_previously_forecasted_questions = False
         questions = [
             MetaculusApi.get_question_by_url(question_url)
             for question_url in EXAMPLE_QUESTIONS
         ]
         forecast_reports = asyncio.run(
-            template_bot.forecast_questions(questions, return_exceptions=True)
+            delphi_bot.forecast_questions(questions, return_exceptions=True)
         )
-    template_bot.log_report_summary(forecast_reports)
+    delphi_bot.log_report_summary(forecast_reports)
