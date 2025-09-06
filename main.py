@@ -42,7 +42,7 @@ class DelphiFall2025(ForecastBot):
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
-    async def run_newsboy(self, question: MetaculusQuestion) -> str:
+    async def run_newsboy(self, question: MetaculusQuestion, asknews_data: str = None) -> str:
         """Get a quick news summary before running detailed research."""
         # Note: No semaphore here since this is called from within run_research which already has the semaphore
         logger.info(f"Starting newsboy for URL {question.page_url}")
@@ -57,11 +57,16 @@ class DelphiFall2025(ForecastBot):
                 logger.info("Newsboy using GeneralLlm")
                 news_summary = await newsboy.invoke(prompt)
             elif newsboy == "asknews/news-summaries":
-                # Use AskNews for quick news summaries
+                # Use AskNews for quick news summaries - reuse data if available
                 logger.info("Newsboy using AskNews news-summaries")
-                news_summary = await AskNewsSearcher().get_formatted_news_async(
-                    question.question_text
-                )
+                if asknews_data and not asknews_data.startswith("AskNews"):
+                    news_summary = asknews_data
+                else:
+                    # Fallback to LLM if AskNews failed
+                    logger.warning(f"AskNews unavailable for newsboy, falling back to LLM for URL {question.page_url}")
+                    news_summary = await self.get_llm("newsboy", "llm").invoke(
+                        f"Find the most recent and relevant news about: {question.question_text}"
+                    )
             elif newsboy == "asknews/deep-research/medium-depth":
                 logger.info("Newsboy using AskNews deep-research (this might be slow)")
                 news_summary = await AskNewsSearcher().get_formatted_deep_research(
@@ -94,10 +99,29 @@ class DelphiFall2025(ForecastBot):
             research = ""
             researcher = self.get_llm("researcher")
             
+            # Get AskNews data once if either newsboy or researcher needs it
+            asknews_data = None
+            newsboy = self.get_llm("newsboy")
+            if (newsboy == "asknews/news-summaries" or 
+                researcher == "asknews/news-summaries" or 
+                researcher == "asknews/deep-research/medium-depth"):
+                try:
+                    logger.info(f"Fetching AskNews data for URL {question.page_url}")
+                    asknews_data = await AskNewsSearcher().get_formatted_news_async(question.question_text)
+                    logger.info(f"AskNews data fetched for URL {question.page_url}")
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "rate limit" in error_msg or "too many requests" in error_msg:
+                        logger.error(f"AskNews rate limit exceeded for URL {question.page_url}: {e}")
+                        asknews_data = "AskNews rate limit exceeded - using fallback research methods"
+                    else:
+                        logger.error(f"AskNews failed for URL {question.page_url}: {e}")
+                        asknews_data = f"AskNews error: {str(e)}"
+            
             # First, get news summary from newsboy
             logger.info(f"Calling newsboy for URL {question.page_url}")
             try:
-                news_summary = await asyncio.wait_for(self.run_newsboy(question), timeout=60.0)  # 60 second timeout
+                news_summary = await asyncio.wait_for(self.run_newsboy(question, asknews_data), timeout=60.0)  # 60 second timeout
                 logger.info(f"Newsboy completed, starting researcher for URL {question.page_url}")
             except asyncio.TimeoutError:
                 logger.error(f"Newsboy timed out for URL {question.page_url}")
@@ -137,10 +161,13 @@ class DelphiFall2025(ForecastBot):
             if isinstance(researcher, GeneralLlm):
                 research = await researcher.invoke(prompt)
             elif researcher == "asknews/news-summaries":
-                #note there is an issue for this because it makes 2 API calls within the formatted_news_async function and gets a rate limit error
-                research = await AskNewsSearcher().get_formatted_news_async(
-                    question.question_text
-                )
+                # Use shared AskNews data to avoid rate limiting
+                if asknews_data and not asknews_data.startswith("AskNews"):
+                    research = asknews_data
+                else:
+                    # Fallback to LLM if AskNews failed
+                    logger.warning(f"AskNews unavailable for researcher, falling back to LLM for URL {question.page_url}")
+                    research = await self.get_llm("researcher", "llm").invoke(prompt)
             elif researcher == "asknews/deep-research/medium-depth":
                 research = await AskNewsSearcher().get_formatted_deep_research(
                     question.question_text,
@@ -459,21 +486,21 @@ if __name__ == "__main__":
 
     delphi_bot = DelphiFall2025(
         research_reports_per_question=1,
-        predictions_per_research_report=1,
+        predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
         folder_to_save_reports_to="reports",
         skip_previously_forecasted_questions=True,
         llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
             "default": GeneralLlm(
-                model="openai/o3-mini", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                model="openai/o3", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
                 temperature=0.3,
                 timeout=40,
                 allowed_tries=2,
             ),
             "summarizer": "openai/o3-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
-            "newsboy": "asknews/deep-research/medium-depth",  # Quick news summary before research
-            "researcher": "openai/o3-mini",
+            "newsboy": "asknews/news-summaries",  # Quick news summary before research
+            "researcher": "openai/o3",
             #"factchecker": "openai/o3-mini",
             "parser": "openai/o3-mini",
         },
