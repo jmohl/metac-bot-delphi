@@ -138,8 +138,8 @@ def print_results(results: List[Dict], show_research: bool = True, show_forecast
             print(f"   {'-'*40}")
             # Truncate very long research summaries for readability
             research_text = result['research']
-            if len(research_text) > 500:
-                research_text = research_text[:500] + "... [truncated]"
+            # if len(research_text) > 500:
+            #     research_text = research_text[:500] + "... [truncated]"
             print(f"   {research_text}")
         
         if show_forecast and result['forecast']:
