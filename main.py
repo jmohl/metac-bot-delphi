@@ -498,11 +498,11 @@ if __name__ == "__main__":
                 timeout=40,
                 allowed_tries=2,
             ),
-            "summarizer": "openai/o3-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
+            "summarizer": "openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
             "newsboy": "asknews/news-summaries",  # Quick news summary before research
             "researcher": "openai/o3",
             #"factchecker": "openai/o3-mini",
-            "parser": "openai/o3-mini",
+            "parser": "openai/o4-mini",
         },
     )
     
