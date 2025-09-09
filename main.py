@@ -34,9 +34,7 @@ class DelphiFall2025(ForecastBot):
     """
     This is the Delphi Fall 2025 bot.
     This bot is a fork of the Fall 2025 metac template bot with the following changes:
-    - A focus is placed on validating research for accuracy to minimize the impact of hallucinations.
-    - this should include catching common errors, such as conflating "social democrat party" and "socialist party" or similar.
-    - Enhanced newsboy with web search capabilities for more accurate and recent news gathering.
+    - Using web enabled openai models for news queries, through my own api
     """
 
     _max_concurrent_questions = (
@@ -52,12 +50,6 @@ class DelphiFall2025(ForecastBot):
     async def _generate_web_search_news(self, question_text: str) -> str:
         """
         Generate news summary using OpenAI with web search capabilities.
-        
-        Args:
-            question_text: The question to research
-            
-        Returns:
-            News summary string
         """
         try:
             client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -65,7 +57,10 @@ class DelphiFall2025(ForecastBot):
             response = await client.responses.create(
                 model="gpt-4o-mini",  # Web-enabled model
                 tools=[{"type": "web_search"}],
-                input=f"Find the most recent and relevant news about: {question_text}. Provide a concise summary focusing on key developments and facts that would be relevant for forecasting this question.",
+                input=f"""Find the most recent and relevant news about: {question_text}. 
+                Provide a concise summary focusing on key developments and facts that would be relevant for forecasting this question.
+                In particular, if the question is one that might soon resolve based on observed information, this should be prioritized above all else.
+                """,
             )
             
             return response.output_text
@@ -73,53 +68,13 @@ class DelphiFall2025(ForecastBot):
             logger.error(f"Web search news generation failed: {e}")
             return f"Web search error: {str(e)}"
 
-    async def run_newsboy(self, question: MetaculusQuestion) -> str:
-        """Get a quick news summary before running detailed research using web search."""
-        # Note: No semaphore here since this is called from within run_research which already has the semaphore
-        logger.info(f"Starting newsboy for URL {question.page_url}")
-        newsboy = self.get_llm("newsboy")
-        
-        try:
-            if isinstance(newsboy, GeneralLlm) and self.newsboy_web_search_enabled:
-                # Use web search enabled approach similar to simple_news_reporter
-                logger.info("Newsboy using GeneralLlm with web search")
-                news_summary = await self._generate_web_search_news(question.question_text)
-            elif isinstance(newsboy, GeneralLlm) and not self.newsboy_web_search_enabled:
-                # Use GeneralLlm without web search
-                logger.info("Newsboy using GeneralLlm without web search")
-                prompt = f"Find the most recent and relevant news about: {question.question_text}"
-                news_summary = await newsboy.invoke(prompt)
-            elif not newsboy or newsboy == "None":
-                logger.info("Newsboy disabled")
-                news_summary = ""
-            else:
-                # Fallback to LLM without web search
-                logger.info("Newsboy using assigned LLM (no web search)")
-                news_summary = await self.get_llm("newsboy", "llm").invoke(
-                    f"Find the most recent and relevant news about: {question.question_text}"
-                )
-            
-            logger.info(f"Newsboy completed for URL {question.page_url}")
-            logger.info(f"Newsboy summary for URL {question.page_url}:\n{news_summary}")
-            return news_summary
-        except Exception as e:
-            logger.error(f"Newsboy failed for URL {question.page_url}: {e}")
-            return f"Newsboy error: {str(e)}"
-
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
             logger.info(f"Starting research for URL {question.page_url}")
             research = ""
             researcher = self.get_llm("researcher")
-            
-            # First, get news summary from newsboy
-            logger.info(f"Calling newsboy for URL {question.page_url}")
-            try:
-                news_summary = await asyncio.wait_for(self.run_newsboy(question), timeout=60.0)  # 60 second timeout
-                logger.info(f"Newsboy completed, starting researcher for URL {question.page_url}")
-            except asyncio.TimeoutError:
-                logger.error(f"Newsboy timed out for URL {question.page_url}")
-                news_summary = "Newsboy timed out - no initial news summary available."
+
+            news_summary = await self._generate_web_search_news(question.question_text)
 
             prompt = clean_indents(
                 f"""
@@ -142,7 +97,7 @@ class DelphiFall2025(ForecastBot):
                 The options are: {getattr(question, 'options', 'yes/no or a range of values')}
                 If there are multiple options listed, you must provide a brief description of each of the options to provide context.
 
-                You have already tasked one of your junior analysts to produce a news summary related to this question.
+                You have already tasked one of your junior analysts to produce a recent news summary related to this question.
                 They reported the following:
                 {news_summary if news_summary else "No initial news summary available."}
 
@@ -389,9 +344,6 @@ class DelphiFall2025(ForecastBot):
                 f.write(f"Question: {question.question_text}\n")
                 f.write(f"URL: {question.page_url}\n")
                 f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("=" * 80 + "\n\n")
-                f.write("=== NEWSBOY SUMMARY ===\n")
-                f.write(news_summary if news_summary else "No news summary available.\n")
                 f.write("\n" + "=" * 80 + "\n\n")
                 f.write("=== RESEARCHER PROMPT ===\n")
                 f.write(prompt)
@@ -403,12 +355,6 @@ class DelphiFall2025(ForecastBot):
             
         except Exception as e:
             logger.error(f"Failed to save research to txt file: {e}")
-#this was an attempt at removing the carriage/newline issue I was gettin, but this is still only happening in github jobs for some reason.
-    def _sanitize_text(self, text: str) -> str:
-        """Sanitize text by removing newlines and carriage returns to prevent header injection attacks."""
-        if not text:
-            return ""
-        return text.replace('\n', ' ').replace('\r', ' ').strip()
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -453,26 +399,20 @@ if __name__ == "__main__":
         research_reports_per_question=1,
         predictions_per_research_report=1,
         use_research_summary_to_forecast=False,
-        publish_reports_to_metaculus=False,
+        publish_reports_to_metaculus=True,
         folder_to_save_reports_to="reports",
         skip_previously_forecasted_questions=True,
         llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
             "default": GeneralLlm(
-                model="openai/o3", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
-                temperature=0.3,
-                timeout=40,
+                model="openrouter/openai/gpt-5", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                temperature=1,
+                timeout=180,
                 allowed_tries=2,
             ),
-            "summarizer": "openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
-            "newsboy": GeneralLlm(
-                model="openai/gpt-4o-mini-search-preview",  # GPT-4o mini with web search enabled
-                temperature=0.3,
-                timeout=40,
-                allowed_tries=2,
-            ),
-            "researcher": "None",#"openai/o4-mini",
+            "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
+            "researcher": "openrouter/openai/o3",
             #"factchecker": "openai/o3-mini",
-            "parser": "openai/o4-mini",
+            "parser": "openrouter/openai/o4-mini",
         },
     )
     
