@@ -38,7 +38,7 @@ class DelphiFall2025(ForecastBot):
     """
 
     _max_concurrent_questions = (
-        1  # Set this to whatever works for your search-provider/ai-model rate limits
+        4  # Set this to whatever works for your search-provider/ai-model rate limits
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
     
@@ -80,9 +80,8 @@ class DelphiFall2025(ForecastBot):
                 f"""
                 You are an experienced Research Lead on a small superforecasting team.
                 You will be given a question to research, for which your team will need to produce a forecast.
-                Your role is to provide a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
-                You focus on providing the most relevant news, not only the most recent news. 
-                However, if there is news that suggest resolution of the question is imminent then this should be prioritized above all else
+                Your role is to provide a concise but detailed rundown of the most relevant background and news, including if the question would resolve Yes or No based on current information.
+                If there is news that suggest resolution of the question is imminent then this should be prioritized above all else and strongly emphasized in your report.
 
                 You do not produce forecasts yourself.
 
@@ -397,7 +396,7 @@ if __name__ == "__main__":
 
     delphi_bot = DelphiFall2025(
         research_reports_per_question=1,
-        predictions_per_research_report=1,
+        predictions_per_research_report=5,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
         folder_to_save_reports_to="reports",
@@ -446,10 +445,10 @@ if __name__ == "__main__":
     elif run_mode == "test_questions":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
-            #"https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
+            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-            #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
         delphi_bot.skip_previously_forecasted_questions = False
         questions = [
