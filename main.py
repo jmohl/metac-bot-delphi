@@ -201,7 +201,7 @@ class DelphiFall2025(ForecastBot):
 
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
 
-            Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 exactly.
+            Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 EXACTLY.
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
             Option_B: Probability_B
