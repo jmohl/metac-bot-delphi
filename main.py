@@ -374,8 +374,8 @@ if __name__ == "__main__":
         "--mode",
         type=str,
         choices=["tournament", "metaculus_cup", "test_questions"],
-        default="test_questions",
-        help="Specify the run mode (default: test_questions)",
+        default="tournament",
+        help="Specify the run mode (default: tournament)",
     )
     parser.add_argument(
         "--research_to_txt",
