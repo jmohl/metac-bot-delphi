@@ -6,6 +6,7 @@ from datetime import datetime
 from tkinter.constants import TRUE
 from typing import Literal
 from asknews_sdk import AsyncAskNewsSDK
+from openai import AsyncOpenAI
 
 from asknews_searcher_dp import AskNewsSearcher
 from forecasting_tools import (
@@ -35,53 +36,65 @@ class DelphiFall2025(ForecastBot):
     This bot is a fork of the Fall 2025 metac template bot with the following changes:
     - A focus is placed on validating research for accuracy to minimize the impact of hallucinations.
     - this should include catching common errors, such as conflating "social democrat party" and "socialist party" or similar.
+    - Enhanced newsboy with web search capabilities for more accurate and recent news gathering.
     """
 
     _max_concurrent_questions = (
         1  # Set this to whatever works for your search-provider/ai-model rate limits
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Enable web search for newsboy by default
+        self.newsboy_web_search_enabled = getattr(self, 'newsboy_web_search_enabled', True)
 
-    async def run_newsboy(self, question: MetaculusQuestion, asknews_data: str = None) -> str:
-        """Get a quick news summary before running detailed research."""
+    async def _generate_web_search_news(self, question_text: str) -> str:
+        """
+        Generate news summary using OpenAI with web search capabilities.
+        
+        Args:
+            question_text: The question to research
+            
+        Returns:
+            News summary string
+        """
+        try:
+            client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            
+            response = await client.responses.create(
+                model="gpt-4o-mini",  # Web-enabled model
+                tools=[{"type": "web_search"}],
+                input=f"Find the most recent and relevant news about: {question_text}. Provide a concise summary focusing on key developments and facts that would be relevant for forecasting this question.",
+            )
+            
+            return response.output_text
+        except Exception as e:
+            logger.error(f"Web search news generation failed: {e}")
+            return f"Web search error: {str(e)}"
+
+    async def run_newsboy(self, question: MetaculusQuestion) -> str:
+        """Get a quick news summary before running detailed research using web search."""
         # Note: No semaphore here since this is called from within run_research which already has the semaphore
         logger.info(f"Starting newsboy for URL {question.page_url}")
         newsboy = self.get_llm("newsboy")
         
         try:
-            if isinstance(newsboy, GeneralLlm):
-                # Use a simple prompt for quick news gathering
-                prompt = f"""
-                Find the most recent and relevant news about: {question.question_text}
-                """
-                logger.info("Newsboy using GeneralLlm")
+            if isinstance(newsboy, GeneralLlm) and self.newsboy_web_search_enabled:
+                # Use web search enabled approach similar to simple_news_reporter
+                logger.info("Newsboy using GeneralLlm with web search")
+                news_summary = await self._generate_web_search_news(question.question_text)
+            elif isinstance(newsboy, GeneralLlm) and not self.newsboy_web_search_enabled:
+                # Use GeneralLlm without web search
+                logger.info("Newsboy using GeneralLlm without web search")
+                prompt = f"Find the most recent and relevant news about: {question.question_text}"
                 news_summary = await newsboy.invoke(prompt)
-            elif newsboy == "asknews/news-summaries":
-                # Use AskNews for quick news summaries - reuse data if available
-                logger.info("Newsboy using AskNews news-summaries")
-                if asknews_data and not asknews_data.startswith("AskNews"):
-                    news_summary = asknews_data
-                else:
-                    # Fallback to LLM if AskNews failed
-                    logger.warning(f"AskNews unavailable for newsboy, falling back to LLM for URL {question.page_url}")
-                    news_summary = await self.get_llm("newsboy", "llm").invoke(
-                        f"Find the most recent and relevant news about: {question.question_text}"
-                    )
-            elif newsboy == "asknews/deep-research/medium-depth":
-                logger.info("Newsboy using AskNews deep-research (this might be slow)")
-                news_summary = await AskNewsSearcher().get_formatted_deep_research(
-                    question.question_text,
-                    sources=["asknews"],
-                    search_depth=2,#this is the max allowed by asknews for metaculus users
-                    max_depth=2,
-                    model="deepseek-basic",#better models are not allowed using the free metaculus tier
-                )
             elif not newsboy or newsboy == "None":
                 logger.info("Newsboy disabled")
                 news_summary = ""
             else:
-                # Fallback to LLM
-                logger.info("Newsboy using fallback LLM")
+                # Fallback to LLM without web search
+                logger.info("Newsboy using assigned LLM (no web search)")
                 news_summary = await self.get_llm("newsboy", "llm").invoke(
                     f"Find the most recent and relevant news about: {question.question_text}"
                 )
@@ -99,29 +112,10 @@ class DelphiFall2025(ForecastBot):
             research = ""
             researcher = self.get_llm("researcher")
             
-            # Get AskNews data once if either newsboy or researcher needs it
-            asknews_data = None
-            newsboy = self.get_llm("newsboy")
-            if (newsboy == "asknews/news-summaries" or 
-                researcher == "asknews/news-summaries" or 
-                researcher == "asknews/deep-research/medium-depth"):
-                try:
-                    logger.info(f"Fetching AskNews data for URL {question.page_url}")
-                    asknews_data = await AskNewsSearcher().get_formatted_news_async(question.question_text)
-                    logger.info(f"AskNews data fetched for URL {question.page_url}")
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if "rate limit" in error_msg or "too many requests" in error_msg:
-                        logger.error(f"AskNews rate limit exceeded for URL {question.page_url}: {e}")
-                        asknews_data = "AskNews rate limit exceeded - using fallback research methods"
-                    else:
-                        logger.error(f"AskNews failed for URL {question.page_url}: {e}")
-                        asknews_data = f"AskNews error: {str(e)}"
-            
             # First, get news summary from newsboy
             logger.info(f"Calling newsboy for URL {question.page_url}")
             try:
-                news_summary = await asyncio.wait_for(self.run_newsboy(question, asknews_data), timeout=60.0)  # 60 second timeout
+                news_summary = await asyncio.wait_for(self.run_newsboy(question), timeout=60.0)  # 60 second timeout
                 logger.info(f"Newsboy completed, starting researcher for URL {question.page_url}")
             except asyncio.TimeoutError:
                 logger.error(f"Newsboy timed out for URL {question.page_url}")
@@ -160,40 +154,6 @@ class DelphiFall2025(ForecastBot):
 
             if isinstance(researcher, GeneralLlm):
                 research = await researcher.invoke(prompt)
-            elif researcher == "asknews/news-summaries":
-                # Use shared AskNews data to avoid rate limiting
-                if asknews_data and not asknews_data.startswith("AskNews"):
-                    research = asknews_data
-                else:
-                    # Fallback to LLM if AskNews failed
-                    logger.warning(f"AskNews unavailable for researcher, falling back to LLM for URL {question.page_url}")
-                    research = await self.get_llm("researcher", "llm").invoke(prompt)
-            elif researcher == "asknews/deep-research/medium-depth":
-                research = await AskNewsSearcher().get_formatted_deep_research(
-                    question.question_text,
-                    sources=["asknews"],
-                    search_depth=2,#this is the max allowed by asknews for metaculus users
-                    max_depth=2,
-                    model="deepseek-basic",#better models are not allowed using the free metaculus tier
-                )
-               # research=self._sanitize_text(research)
-            # elif researcher == "asknews/deep-research/high-depth":
-            #     research = await AskNewsSearcher().get_formatted_deep_research(
-            #         question.question_text,
-            #         sources=["asknews"],
-            #         search_depth=2,
-            #         max_depth=2,
-            #     )
-            # elif researcher.startswith("smart-searcher"):
-            #     model_name = researcher.removeprefix("smart-searcher/")
-            #     searcher = SmartSearcher(
-            #         model=model_name,
-            #         temperature=0,
-            #         num_searches_to_run=2,
-            #         num_sites_per_search=10,
-            #         use_advanced_filters=False,
-            #     )
-            #    research = await searcher.invoke(prompt)
             elif not researcher or researcher == "None":
                 research = ""
             else:
@@ -476,6 +436,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Save research strings to txt files in the reports folder",
     )
+    parser.add_argument(
+        "--disable_newsboy_web_search",
+        action="store_true",
+        help="Disable web search for newsboy (use regular LLM instead)",
+    )
     args = parser.parse_args()
     run_mode: Literal["tournament", "metaculus_cup", "test_questions"] = args.mode
     assert run_mode in [
@@ -486,9 +451,9 @@ if __name__ == "__main__":
 
     delphi_bot = DelphiFall2025(
         research_reports_per_question=1,
-        predictions_per_research_report=5,
+        predictions_per_research_report=1,
         use_research_summary_to_forecast=False,
-        publish_reports_to_metaculus=True,
+        publish_reports_to_metaculus=False,
         folder_to_save_reports_to="reports",
         skip_previously_forecasted_questions=True,
         llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
@@ -498,9 +463,14 @@ if __name__ == "__main__":
                 timeout=40,
                 allowed_tries=2,
             ),
-            "summarizer": "openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. Or use opena1 directly since I have 120/mo
-            "newsboy": "asknews/news-summaries",  # Quick news summary before research
-            "researcher": "openai/o3",
+            "summarizer": "openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
+            "newsboy": GeneralLlm(
+                model="openai/gpt-4o-mini-search-preview",  # GPT-4o mini with web search enabled
+                temperature=0.3,
+                timeout=40,
+                allowed_tries=2,
+            ),
+            "researcher": "None",#"openai/o4-mini",
             #"factchecker": "openai/o3-mini",
             "parser": "openai/o4-mini",
         },
@@ -508,6 +478,9 @@ if __name__ == "__main__":
     
     # Set the research_to_txt flag
     delphi_bot.research_to_txt = args.research_to_txt
+    
+    # Set the newsboy web search flag
+    delphi_bot.newsboy_web_search_enabled = not args.disable_newsboy_web_search
 
     if run_mode == "tournament":
         seasonal_tournament_reports = asyncio.run(
@@ -533,9 +506,9 @@ if __name__ == "__main__":
     elif run_mode == "test_questions":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
-            "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
+            #"https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
             #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
             #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
         ]
         delphi_bot.skip_previously_forecasted_questions = False
