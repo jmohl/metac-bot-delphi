@@ -18,7 +18,7 @@ from forecasting_tools import (
     run_benchmark_streamlit_page,
 )
 
-from main import TemplateForecaster
+from main import DelphiFall2025
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ async def benchmark_forecast_bot(mode: str) -> None:
     Run a benchmark that compares your forecasts against the community prediction
     """
 
-    number_of_questions = 30 # Recommend 100+ for meaningful error bars, but 30 is faster/cheaper
+    number_of_questions = 4 # Recommend 100+ for meaningful error bars, but 30 is faster/cheaper
     if mode == "display":
         run_benchmark_streamlit_page()
         return
@@ -58,25 +58,46 @@ async def benchmark_forecast_bot(mode: str) -> None:
 
     with MonetaryCostManager() as cost_manager:
         bots = [
-            TemplateForecaster(
-                predictions_per_research_report=5,
-                llms={
-                    "default": GeneralLlm(
-                        model="openrouter/openai/gpt-4o-mini",
-                        temperature=0.3,
-                    ),
-                },
-            ),
-            TemplateForecaster(
+            DelphiFall2025(
                 predictions_per_research_report=1,
                 llms={
                     "default": GeneralLlm(
                         model="openrouter/openai/gpt-4o-mini",
                         temperature=0.3,
                     ),
+                    "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
+                    "researcher": "openrouter/openai/o3",
+                    "parser": "openrouter/openai/o4-mini",
                 },
             ),
-            # Add other ForecastBots here (or same bot with different parameters)
+            DelphiFall2025(
+                predictions_per_research_report=1,
+                llms={
+                    "default": GeneralLlm(
+                    model="openrouter/openai/gpt-5", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                    temperature=1,
+                    timeout=180,
+                    allowed_tries=2,
+                    ),
+                    "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
+                    "researcher": "openrouter/openai/o3",
+                    "parser": "openrouter/openai/o4-mini",
+               },
+            ),
+             DelphiFall2025(
+                predictions_per_research_report=5,
+                llms={
+                    "default": GeneralLlm(
+                    model="openrouter/openai/gpt-5", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                    temperature=1,
+                    timeout=180,
+                    allowed_tries=2,
+                    ),
+                    "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
+                    "researcher": "openrouter/openai/o3",
+                    "parser": "openrouter/openai/o4-mini",
+               },
+            ),# Add other ForecastBots here (or same bot with different parameters)
         ]
         bots = typeguard.check_type(bots, list[ForecastBot])
         benchmarks = await Benchmarker(
