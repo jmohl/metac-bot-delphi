@@ -409,7 +409,7 @@ if __name__ == "__main__":
                 allowed_tries=2,
             ),
             "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
-            "researcher": "openrouter/openai/o3",
+            "researcher": "openrouter/openai/gpt-5",
             #"factchecker": "openai/o3-mini",
             "parser": "openrouter/openai/o4-mini",
         },
