@@ -7,6 +7,7 @@ from tkinter.constants import TRUE
 from typing import Literal
 from asknews_sdk import AsyncAskNewsSDK
 from openai import AsyncOpenAI
+import litellm
 
 from asknews_searcher_dp import AskNewsSearcher
 from forecasting_tools import (
@@ -28,6 +29,18 @@ from forecasting_tools import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Register custom model costs for litellm
+litellm.register_model({
+    "openrouter/openai/gpt-5": {
+        "input_cost_per_token": 0.00000125, 
+        "output_cost_per_token": 0.00001
+    },
+    "openrouter/openai/o4-mini": {
+        "input_cost_per_token": 0.00000110, 
+        "output_cost_per_token": 0.00000440
+    },
+})
 
 
 class DelphiFall2025(ForecastBot):
