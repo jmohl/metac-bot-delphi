@@ -27,6 +27,9 @@ from forecasting_tools import (
     clean_indents,
     structure_output,
 )
+from forecasting_tools.data_models.data_organizer import PredictionTypes
+import statistics
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +71,20 @@ class DelphiFall2025(ForecastBot):
             client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
             
             response = await client.responses.create(
-                model="gpt-4o-mini",  # Web-enabled model
+                model="gpt-5-mini",  # Web-enabled model
                 tools=[{"type": "web_search"}],
-                input=f"""Find the most recent and relevant news about: {question_text}. 
-                Provide a concise summary focusing on key developments and facts that would be relevant for forecasting this question.
-                In particular, if the question is one that might soon resolve based on observed information, this should be prioritized above all else.
-                """,
+                input=f"""You have been tasked with putting together a news report for a forecasting question which will be provided to other forecasters on your team.
+                Your job is to find the most recent and relevant news about {question_text} available on the internet.
+                To accomplish this task, you should first think about the question and what types of news or data will be most relevant, then search for those things.
+                For questions that involve a time evolving factor (like change in stock price), it may be helpful to report recent history as well as the most current reading.
+                Remember, it is not your job to answer the question, but instead to provide a detailed and concise report on key facts.
+                Do not offer any suggestions. That is not your job. Instead focus only on reporting the facts.
+                Importantly, if there is evidence that the question will resolve imminently, that evidence should be emphasized in the report.
+                Format your output in this style (important note, the key facts and high level summary should be the last thing output):
+                Question reserached:
+                Key considerations to research:
+                Key facts found:
+                High level summary:""",
             )
             
             return response.output_text
@@ -87,7 +98,11 @@ class DelphiFall2025(ForecastBot):
             research = ""
             researcher = self.get_llm("researcher")
 
-            news_summary = await self._generate_web_search_news(question.question_text)
+            if self.newsboy_web_search_enabled:
+                news_summary = await self._generate_web_search_news(question.question_text)
+            else:
+                news_summary = "News report skipped"
+                print("Skipping web search because disable_newsboy_web_search flag was passed")
 
             prompt = clean_indents(
                 f"""
@@ -342,6 +357,65 @@ class DelphiFall2025(ForecastBot):
             )
         return upper_bound_message, lower_bound_message
 
+    async def _aggregate_predictions(
+        self,
+        predictions: list[PredictionTypes],
+        question: MetaculusQuestion,
+    ) -> PredictionTypes:
+        """Override parent class to use mean instead of median for aggregation."""
+        if isinstance(question, BinaryQuestion):
+            # Use mean instead of median for binary questions
+            for prediction in predictions:
+                assert 0 <= prediction <= 1, "Predictions must be between 0 and 1"
+
+            mean_val = statistics.mean(predictions)
+            # median_val = statistics.median(predictions)
+            # logger.info(f"Binary aggregation for question: {question.question_text[:100]}...")
+            # logger.info(f"  Individual predictions: {predictions}")
+            # logger.info(f"  Mean: {mean_val:.4f}")
+            # logger.info(f"  Median: {median_val:.4f} (not used)")
+            # logger.info(f"  Difference (mean-median): {mean_val - median_val:.4f}")
+
+            return float(mean_val)
+        elif isinstance(question, NumericQuestion):
+            # Use mean instead of median for numeric distributions
+            assert predictions, "No predictions to aggregate"
+            cdfs = [prediction.cdf for prediction in predictions]
+            all_percentiles_of_cdf: list[list[float]] = []
+            x_axis: list[float] = [percentile.value for percentile in cdfs[0]]
+
+            # logger.info(f"Numeric aggregation for question: {question.question_text[:100]}...")
+            # logger.info(f"  Aggregating {len(predictions)} predictions")
+
+            for cdf in cdfs:
+                all_percentiles_of_cdf.append([percentile.percentile for percentile in cdf])
+
+            for cdf in cdfs:
+                for i in range(len(cdf)):
+                    if cdf[i].value != x_axis[i]:
+                        raise ValueError("X axis between cdfs is not the same")
+
+            # Use mean instead of median
+            mean_percentile_list: list[float] = np.mean(
+                np.array(all_percentiles_of_cdf), axis=0
+            ).tolist()
+            median_percentile_list: list[float] = np.median(
+                np.array(all_percentiles_of_cdf), axis=0
+            ).tolist()
+
+            # logger.info(f"  Sample mean percentiles at key points: {mean_percentile_list[:3]}")
+            # logger.info(f"  Sample median percentiles at key points: {median_percentile_list[:3]} (not used)")
+
+            mean_cdf = [
+                Percentile(value=value, percentile=percentile)
+                for value, percentile in zip(x_axis, mean_percentile_list)
+            ]
+
+            return NumericDistribution.from_question(mean_cdf, question)
+        else:
+            # Use parent class implementation for other types (multiple choice already uses mean)
+            return await super()._aggregate_predictions(predictions, question)
+
     def _save_research_to_txt(self, question: MetaculusQuestion, prompt: str, research: str, news_summary: str) -> None:
         """Save research string to a txt file in the reports folder."""
         try:
@@ -466,6 +540,7 @@ if __name__ == "__main__":
             "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
             "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            #"https://www.metaculus.com/questions/40136/ldoss-close-price-rises/"
         ]
         delphi_bot.skip_previously_forecasted_questions = False
         questions = [

@@ -12,6 +12,7 @@ import logging
 import os
 from datetime import datetime
 from openai import AsyncOpenAI
+from forecasting_tools import MetaculusApi, MetaculusQuestion
 
 # Configure logging
 logging.basicConfig(
@@ -43,11 +44,22 @@ class SimpleNewsReporter:
             
             # Create the response with web search enabled
             response = await self.client.responses.create(
-                model="gpt-4o-mini",  # Web-enabled model
+                model="gpt-5-mini",  # Web-enabled model
                 tools=[{"type": "web_search"}],
-                input=f"Find the most recent and relevant news about: {question}. Provide a comprehensive news report with key facts, recent developments, and context.",
+                input=f"""You have been tasked with putting together a news report for a forecasting question which will be provided to other forecasters on your team.
+                Your job is to find the most recent and relevant news about {question} available on the internet.
+                To accomplish this task, you should first think about the question and what types of news or data will be most relevant, then search for those things.
+                For questions that involve a time evolving factor (like change in stock price), it may be helpful to report recent history as well as the most current reading.
+                Remember, it is not your job to answer the question, but instead to provide a detailed and concise report on key facts.
+                Do not offer any suggestions. That is not your job. Instead focus only on reporting the facts.
+                Importantly, if there is evidence that the question will resolve imminently, that evidence should be emphasized in the report.
+                Format your output in this style (important note, the key facts and high level summary should be the last thing output):
+                Question reserached:
+                Key considerations to research:
+                Key facts found:
+                High level summary:""",
             )
-            
+
             logger.info("News report generated successfully")
             return response.output_text
             
@@ -55,38 +67,48 @@ class SimpleNewsReporter:
             logger.error(f"Error generating news report: {e}")
             return f"Error generating news report: {str(e)}"
     
-    def format_report(self, question: str, report: str) -> str:
+    def format_report(self, question: str, report: str, metaculus_question: MetaculusQuestion = None) -> str:
         """
         Format the news report with proper headers and structure.
-        
+
         Args:
             question: The original question
             report: The generated news report
-            
+            metaculus_question: Optional Metaculus question object with additional details
+
         Returns:
             Formatted news report string
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        formatted_report = f"""
-{'='*80}
-SIMPLE NEWS REPORTER
-Generated: {timestamp}
-{'='*80}
 
-QUESTION:
-{question}
-
+        metaculus_details = ""
+        if metaculus_question:
+            metaculus_details = f"""
 {'='*80}
-NEWS REPORT:
+METACULUS QUESTION DETAILS:
 {'='*80}
-
-{report}
-
-{'='*80}
-End of Report
-{'='*80}
+URL: {metaculus_question.page_url}
+Question Type: {type(metaculus_question).__name__}
 """
+
+        formatted_report = f"""
+                    {'='*80}
+                    SIMPLE NEWS REPORTER
+                    Generated: {timestamp}
+                    {'='*80}
+
+                    QUESTION:
+                    {question}
+                    {'='*80}
+                    NEWS REPORT:
+                    {'='*80}
+
+                    {report}
+
+                    {'='*80}
+                    End of Report
+                    {'='*80}
+                    """
         return formatted_report
 
 async def main():
@@ -104,6 +126,11 @@ async def main():
         type=int,
         choices=[1, 2, 3, 4],
         help="Use one of the predefined test questions (1-4)"
+    )
+    parser.add_argument(
+        "--metaculus-id",
+        type=int,
+        help="Fetch question from Metaculus by question ID"
     )
     parser.add_argument(
         "--api-key",
@@ -127,7 +154,20 @@ async def main():
     }
     
     # Determine which question to use
-    if args.test_question:
+    metaculus_question = None
+    if args.metaculus_id:
+        # Fetch question from Metaculus
+        logger.info(f"Fetching question {args.metaculus_id} from Metaculus...")
+        question_url = f"https://www.metaculus.com/questions/{args.metaculus_id}/"
+        try:
+            metaculus_question = MetaculusApi.get_question_by_url(question_url)
+            question = metaculus_question.question_text
+            logger.info(f"Fetched Metaculus question: {question}")
+        except Exception as e:
+            logger.error(f"Failed to fetch Metaculus question: {e}")
+            print(f"Error fetching question from Metaculus: {e}")
+            return
+    elif args.test_question:
         question = test_questions[args.test_question]
         logger.info(f"Using test question {args.test_question}: {question}")
     elif args.question:
@@ -160,9 +200,9 @@ async def main():
     # Generate the news report
     print(f"\nGenerating news report for: {question}")
     print("This may take a moment...")
-    
+
     report = await reporter.generate_news_report(question)
-    formatted_report = reporter.format_report(question, report)
+    formatted_report = reporter.format_report(question, report, metaculus_question)
     
     # Display the report
     print(formatted_report)
