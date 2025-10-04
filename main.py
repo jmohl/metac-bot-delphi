@@ -138,9 +138,9 @@ class DelphiFall2025(ForecastBot):
     ) -> ReasonedPrediction[float]:
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+            You are a professional forecaster on a team participating in a forecasting tournament.
 
-            Your interview question is:
+            Your question is:
             {question.question_text}
 
             Question background:
@@ -166,6 +166,9 @@ class DelphiFall2025(ForecastBot):
 
             You write your rationale remembering that good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time.
 
+            However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
+            To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
+
             The last thing you write is your final answer as: "Probability: ZZ%", 0-100
             """
         )
@@ -186,9 +189,9 @@ class DelphiFall2025(ForecastBot):
     ) -> ReasonedPrediction[PredictedOptionList]:
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+            You are a professional forecaster on a team participating in a forecasting tournament.
 
-            Your interview question is:
+            Your question is:
             {question.question_text}
 
             The options are: {question.options}
@@ -213,6 +216,7 @@ class DelphiFall2025(ForecastBot):
             (c) A description of an scenario that results in an unexpected outcome.
 
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
+            In addition to this you know that overly cautious predictions will not lead to success in the tournament. Because of this you try to make small adjustments to make your predictions slightly more confident.
 
             Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 EXACTLY.
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
@@ -252,9 +256,9 @@ class DelphiFall2025(ForecastBot):
         )
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+            You are a professional forecaster on a small team participating in a forecasting tournament.
 
-            Your interview question is:
+            Your question is:
             {question.question_text}
 
             Background:
@@ -287,7 +291,7 @@ class DelphiFall2025(ForecastBot):
             (e) A brief description of an unexpected scenario that results in a low outcome.
             (f) A brief description of an unexpected scenario that results in a high outcome.
 
-            You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
+            You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns. However, because this is a tournament setting you balance this against the knowledge that underconfidence will not lead to victory.
 
             The last thing you write is your final answer as:
             "
