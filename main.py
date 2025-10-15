@@ -81,7 +81,7 @@ class DelphiFall2025(ForecastBot):
                 Do not offer any suggestions. That is not your job. Instead focus only on reporting the facts.
                 Importantly, if there is evidence that the question will resolve imminently, that evidence should be emphasized in the report.
                 Format your output in this style (important note, the key facts and high level summary should be the last thing output):
-                Question reserached:
+                Question researched:
                 Key considerations to research:
                 Key facts found:
                 High level summary:""",
