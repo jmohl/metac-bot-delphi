@@ -5,11 +5,9 @@ import os
 from datetime import datetime
 from tkinter.constants import TRUE
 from typing import Literal
-from asknews_sdk import AsyncAskNewsSDK
 from openai import AsyncOpenAI
 import litellm
 
-from asknews_searcher_dp import AskNewsSearcher
 from forecasting_tools import (
     BinaryQuestion,
     ForecastBot,
@@ -231,7 +229,8 @@ class DelphiFall2025(ForecastBot):
             (c) A description of an scenario that results in an unexpected outcome.
 
             You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
-            In addition to this you know that overly cautious predictions will not lead to success in the tournament. Because of this you try to make small adjustments to make your predictions slightly more confident.
+            However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
+            To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
 
             Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 EXACTLY.
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
@@ -307,6 +306,8 @@ class DelphiFall2025(ForecastBot):
             (f) A brief description of an unexpected scenario that results in a high outcome.
 
             You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns. However, because this is a tournament setting you balance this against the knowledge that underconfidence will not lead to victory.
+            However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
+            To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
 
             The last thing you write is your final answer as:
             "
@@ -537,9 +538,9 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-            "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
             #"https://www.metaculus.com/questions/40136/ldoss-close-price-rises/"
         ]
         delphi_bot.skip_previously_forecasted_questions = False
