@@ -77,8 +77,11 @@ class DelphiFall2025(ForecastBot):
                 For questions that involve a time evolving factor (like change in stock price), it may be helpful to report recent history as well as the most current reading.
                 Remember, it is not your job to answer the question, but instead to provide a detailed and concise report on key facts.
                 Do not offer any suggestions. That is not your job. Instead focus only on reporting the facts.
-                Importantly, if there is evidence that the question will resolve imminently, that evidence should be emphasized in the report.
-                Format your output in this style (important note, the key facts and high level summary should be the last thing output):
+                IMPORTANT: if there is evidence that the question will resolve imminently, that evidence should be emphasized in the report.
+                IMPORTANT: Often, binary and multiple choice questions have a threshold set very close to the current value. So if you find a value in your research that is significantly off from this threshold value, you should double check that to be sure.
+                Example: "The question asks whether the community prediction on metaculus will be higher than 10% on october 15th, but I found the community prediction was currently 30%. This is much higher than the 10% threshold, so I should search again to be sure I have the right number"
+                
+                Format your output in this style. The key facts and high level summary should be the last thing output):
                 Question researched:
                 Key considerations to research:
                 Key facts found:
@@ -182,6 +185,11 @@ class DelphiFall2025(ForecastBot):
             However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
             To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
 
+            Keep in mind that certain outcomes are fairly predictable. Some examples are: 
+            - Generally, metaculus forecasts change slowly unless there is major news.
+            - As the time remaining for an event to occur decreases, forecasts generally trend lower.
+            - Google trends for topics that are only briefly in the news drop very quickly to low values, usually within a week of the most recent news event.
+
             The last thing you write is your final answer as: "Probability: ZZ%", 0-100
             """
         )
@@ -232,6 +240,14 @@ class DelphiFall2025(ForecastBot):
             However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
             To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
 
+            Keep in mind that certain outcomes are fairly predictable. Some examples are: 
+            - Generally, metaculus forecasts change slowly unless there is major news. Without major news they are likely stable over the course of 1-2 weeks.
+            - As the time remaining for an event to occur decreases, forecasts generally trend lower.
+            - Google trends for topics that are only briefly in the news drop very quickly to low values, usually within a week of the most recent news event.
+            - The starting date for comparing Google trends is important: if the first comparison date is close to a spike in attention, it is almost certain to decrease. However if it is a week or more after the spike in interest, the trend may have already dropped to baseline levels and is unlikely to change.
+            - Google trends range from 0-100, and the range for "doesn't change" is +-3 points, so by default there is only a 6% chance of this occuring.
+            - Importantly, if the trend has already returned to baseline levels of interest, it almost impossible to "decrease" because it cannot drop below 0. In these cases, "doesn't change" has >90% chance of being the correct answer.
+            
             Note that all of the chosen probabilities must be between 0.001 (or 0.1%) and 0.999 (or 99.9%) and that these options MUST SUM to 1.0 EXACTLY.
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
@@ -305,7 +321,7 @@ class DelphiFall2025(ForecastBot):
             (e) A brief description of an unexpected scenario that results in a low outcome.
             (f) A brief description of an unexpected scenario that results in a high outcome.
 
-            You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns. However, because this is a tournament setting you balance this against the knowledge that underconfidence will not lead to victory.
+            You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
             However, you are also a strong forecaster and participating in a tournament. Given this context, you know that making overly conservative predictions will not lead to victory.
             To account for this you make small adjustments to your predictions to make them slightly more confident in one direction or the other.
 
@@ -497,7 +513,7 @@ if __name__ == "__main__":
             "default": GeneralLlm(
                 model="openrouter/openai/gpt-5", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
                 temperature=1,
-                timeout=180,
+                timeout=240,
                 allowed_tries=2,
             ),
             "summarizer": "openrouter/openai/o4-mini",#note, can append openrouter/openai/ to the model name to use OpenRouter. 
